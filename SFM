@@ -1,0 +1,136 @@
+#!/usr/bin/python
+import time
+import json
+import shutil
+import os
+import re
+import argparse
+from watchdog.observers import Observer
+from watchdog.events import PatternMatchingEventHandler
+
+settings_path = '.settings.json'
+
+with open(settings_path,'r') as f:
+    settings = json.load(f)
+    f.close()
+
+# update the settings
+def update_settings():
+    with open(".settings.json",'w') as f:
+        json_object = json.dumps(settings, indent=4)
+        f.write(json_object)
+        f.close()
+
+
+# makes sure that the keyword hasn't been used before in settings
+def valid_keyword(keyword):
+    for setting in settings['file-settings']:
+        if setting['keyword'] == keyword:
+            print("[!] Keyword is already in use.")
+            return False
+    return True
+
+# removes an element in file-settings
+def remove_from_file_settings(index):
+    for i in range(len(settings['file-settings'])):
+        if i == (index - 1):
+            del settings['file-settings'][i]
+            print("[+] Removed successfully")
+    update_settings()
+
+# adds a element to 
+def add_to_file_settings(directory, keyword):
+    settings['file-settings'].append({"directory":directory, "keyword":keyword})
+    update_settings()
+
+# changes the downlaods folder
+def change_downloads_dir(directory):
+    settings['downloads-folder'] = directory
+    update_settings()
+
+# prints out the current settings
+def print_info():
+    print(f"[D] Downloads folder >> {settings['downloads-folder']}")
+    index = 1
+    for setting in settings['file-settings']:
+        print(f"[I] {index} : [Dir] >> {setting['directory']} [Key] >> {setting['keyword']}")
+        index = index + 1
+
+def run_watchdog():
+    patterns = ["*"]
+    ignore_patterns = None
+    ignore_directories = False
+    case_sensitive = True
+    my_event_handler = PatternMatchingEventHandler(patterns, ignore_patterns, ignore_directories, case_sensitive)
+    my_event_handler.on_created = on_created
+    path = settings['downloads-folder']
+    go_recursively = True
+    my_observer = Observer()
+    my_observer.schedule(my_event_handler, path, recursive=go_recursively)
+    my_observer.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        my_observer.stop()
+        my_observer.join()
+
+def move_file(src, directory, fileName):
+    fileDest = os.path.join(directory,fileName)
+    shutil.move(src,fileDest)
+    print(f"{fileName} was moved to {directory}")
+
+def on_created(event):
+    fileName = os.path.basename(event.src_path)
+    fileDest = ''
+
+    for setting in settings['file-settings']:
+        if setting['keyword'] in fileName:
+            move_file(event.src_path,setting['directory'],fileName)
+            break
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("-a","--add",
+                        type=str,
+                        dest='add',
+                        nargs=2,
+                        help='Adds an element to the to file-settings. The first argument is the directory and the second is the keyword'
+                        )
+    parser.add_argument("-r","--remove",
+                        type=int,
+                        dest='remove',
+                        help='Removes an element in file-settings via the index'
+                        )
+    parser.add_argument("-p","--print",
+                        action='store_true',
+                        dest='print',
+                        help='Prints out every element in file settings and their index'
+                        )
+    parser.add_argument("-cD","--change_directory",
+                        dest='change_directory',
+                        type=str,
+                        help='changes the directory the program will focus on'
+                        )
+    parser.add_argument("-R,","--Run",
+                        action='store_true',
+                        help='Starts monitoring the downloads folder',
+                        dest='run'
+                        )
+    args = parser.parse_args()
+
+    if args.print:
+        print_info()
+    elif args.run:
+        run_watchdog()
+    elif args.change_directory != None:
+        change_downloads_dir(args.change_directory)
+    elif args.add != None and os.path.exists(args.add[0]) and valid_keyword(args.add[1]):
+        add_to_file_settings(args.add[0],args.add[1])
+    elif args.remove != None:
+        remove_from_file_settings(args.remove)
+
+
+if __name__ == "__main__":
+    main()
